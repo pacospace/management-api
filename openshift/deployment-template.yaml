@@ -3,18 +3,36 @@ kind: Template
 metadata:
   name: management-api-deployment
   annotations:
-    description: This is Thoth - Management API
-    openshift.io/display-name: 'Thoth Core: Management API'
-    version: 0.7.1
-    tags: poc,thoth,management-api,ai-stacks,aistacks
+    description: "This is Thoth - Management API"
+    openshift.io/display-name: "Thoth Core: Management API"
+    version: 0.8.1
+    tags: thoth,management-api,ai-stacks,aistacks
     template.openshift.io/documentation-url: https://github.com/Thoth-Station/
     template.openshift.io/long-description: >
       This template defines resources needed to deploy Thoth Management API on OpenShift.
-    template.openshift.io/provider-display-name: Red Hat, Inc.
+    template.openshift.io/provider-display-name: "Red Hat, Inc."
   labels:
     template: management-api-deployment
     app: thoth
     component: management-api
+
+parameters:
+  - description: Project the ImageStream to be use lives in
+    displayName: ImageStream Project
+    required: true
+    name: IMAGE_STREAM_PROJECT_NAME
+
+  - description: Tag of the ImageStream to be use
+    displayName: ImageStream Tag
+    required: true
+    name: IMAGE_STREAM_TAG
+    value: "latest"
+
+  - description: Service account to be used.
+    displayName: Service account name.
+    required: true
+    name: SERVICE_ACCOUNT_NAME
+    value: "management-api"
 
 objects:
   - kind: Route
@@ -24,6 +42,7 @@ objects:
       labels:
         app: thoth
         component: management-api
+        service: management-api
     spec:
       to:
         kind: Service
@@ -35,6 +54,7 @@ objects:
       labels:
         app: thoth
         component: management-api
+        service: management-api
       name: management-api
     spec:
       ports:
@@ -50,6 +70,7 @@ objects:
       labels:
         app: thoth
         component: management-api
+        service: management-api
       name: management-api
     spec:
       replicas: 1
@@ -60,14 +81,14 @@ objects:
           labels:
             service: management-api
         spec:
-          serviceAccountName: analyzer
+          serviceAccountName: "${SERVICE_ACCOUNT_NAME}"
           containers:
-            - name: management-api
-              env:
+            - name: management-api-openapi
+              env: &env
                 - name: APP_MODULE
-                  value: 'thoth.management_api.entrypoint:app'
+                  value: "thoth.management_api.openapi_server:app"
                 - name: KUBERNETES_API_URL
-                  value: 'https://kubernetes.default.svc.cluster.local'
+                  value: "https://kubernetes.default.svc.cluster.local"
                 - name: KUBERNETES_VERIFY_TLS
                   value: "0"
                 - name: AMUN_API_URL
@@ -177,19 +198,43 @@ objects:
                     secretKeyRef:
                       name: thoth
                       key: sentry-dsn
+                - name: KNOWLEDGE_GRAPH_HOST
+                  valueFrom:
+                    configMapKeyRef:
+                      key: postgresql-host
+                      name: thoth
+                - name: KNOWLEDGE_GRAPH_PORT
+                  value: "5432"
+                - name: KNOWLEDGE_GRAPH_SSL_DISABLED
+                  value: "1"
+                - name: KNOWLEDGE_GRAPH_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: database-user
+                - name: KNOWLEDGE_GRAPH_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: database-password
+                - name: KNOWLEDGE_GRAPH_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: database-name
               ports:
                 - containerPort: 8080
                   protocol: TCP
               resources:
                 requests:
-                  memory: "256Mi"
-                  cpu: "250m"
+                  memory: "768Mi"
+                  cpu: "1"
                 limits:
-                  memory: "376Mi"
-                  cpu: "500m"
+                  memory: "1Gi"
+                  cpu: "1.5"
               readinessProbe:
                 httpGet:
-                  path: '/readiness'
+                  path: "/readiness"
                   port: 8080
                   scheme: HTTP
                 initialDelaySeconds: 15
@@ -197,7 +242,7 @@ objects:
                 timeoutSeconds: 10
               livenessProbe:
                 httpGet:
-                  path: '/liveness'
+                  path: "/liveness"
                   port: 8080
                   scheme: HTTP
                 initialDelaySeconds: 5
@@ -210,14 +255,8 @@ objects:
           imageChangeParams:
             automatic: true
             containerNames:
-              - management-api
+              - management-api-openapi
             from:
               kind: ImageStreamTag
-              name: 'management-api:${IMAGE_STREAM_TAG}'
-
-parameters:
-  - description: Tag of the ImageStream to use
-    displayName: ImageStream Tag
-    required: true
-    name: IMAGE_STREAM_TAG
-    value: 'latest'
+              namespace: "${IMAGE_STREAM_PROJECT_NAME}"
+              name: "management-api:${IMAGE_STREAM_TAG}"
